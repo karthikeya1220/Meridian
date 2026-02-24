@@ -1,7 +1,6 @@
 import './globals.css'
 import React from 'react'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
+import ClientShell from '../components/ClientShell'
 
 export const metadata = {
   title: 'Xartup VC Intelligence',
@@ -12,17 +11,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <div className="flex min-h-screen">
-          {/* Sidebar persists across routes by being placed here in layout */}
-          <Sidebar />
-
-          <div className="flex-1 flex flex-col">
-            <Header />
-            <main className="p-6">
-              <div className="container">{children}</div>
-            </main>
-          </div>
-        </div>
+        {/* ClientShell is a client component that provides header, sidebar and providers */}
+        <ClientShell>
+          {children}
+        </ClientShell>
       </body>
     </html>
   )
