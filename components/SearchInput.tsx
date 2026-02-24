@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 type Props = {
   onSearch?: (q: string) => void
@@ -8,10 +9,20 @@ type Props = {
 
 export default function SearchInput({ onSearch }: Props) {
   const [q, setQ] = useState('')
+  const router = useRouter()
 
-  function submit(e?: React.FormEvent) {
+  async function submit(e?: React.FormEvent) {
     e?.preventDefault()
-    onSearch?.(q)
+    const trimmed = q.trim()
+    // If a parent provided an onSearch handler, call it.
+    if (onSearch) {
+      onSearch(trimmed)
+      return
+    }
+
+    // Default behavior: navigate to /companies with or without query
+    const target = trimmed ? `/companies?q=${encodeURIComponent(trimmed)}` : '/companies'
+    router.push(target)
   }
 
   return (

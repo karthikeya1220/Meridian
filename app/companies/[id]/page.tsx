@@ -3,9 +3,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import useAppStore from '../../../stores/useAppStore'
-import { deriveSignals } from '../../../lib/signal-engine'
-import { scoreCompany } from '../../../lib/scoring'
+import { evaluateCompany, evaluateFromFacts } from '../../../lib/evaluate'
 import EnrichmentPanel from '../../../components/EnrichmentPanel'
+import { STORAGE_KEYS } from '../../../lib/storage'
 import type { Company } from '../../../lib/mock-data'
 
 export default function CompanyDetailClient() {
@@ -14,13 +14,16 @@ export default function CompanyDetailClient() {
   const companies = useAppStore((s) => s.companies)
   const addToList = useAppStore((s) => s.addToList)
   const lists = useAppStore((s) => s.lists)
+  const removeFromList = useAppStore((s) => s.removeFromList)
+
+  const [selectedSaveList, setSelectedSaveList] = useState<string>('')
 
   const company = companies.find((c) => c.id === id) as Company | undefined
   // Local notes persisted per-company
   const [notes, setNotes] = useState<string>(() => {
     try {
       if (typeof window === 'undefined') return ''
-      return localStorage.getItem(`xartup.notes.${id}`) || ''
+      return localStorage.getItem(STORAGE_KEYS.notes(id)) || ''
     } catch (e) {
       return ''
     }
@@ -29,29 +32,16 @@ export default function CompanyDetailClient() {
   useEffect(() => {
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(`xartup.notes.${id}`, notes || '')
+        localStorage.setItem(STORAGE_KEYS.notes(id), notes || '')
       } catch (e) {}
     }, 500)
     return () => clearTimeout(t)
   }, [id, notes])
 
-  const facts = useMemo(() => {
-    if (!company) return null
-    return {
-      id: company.id,
-      name: company.name,
-      website: company.website,
-      tags: company.tags,
-      tech_stack: company.tags,
-      repo_links: [],
-      job_postings_count: 0,
-      careers_page: false,
-      blog_posts: []
-    }
-  }, [company])
-
-  const signals = useMemo(() => (facts ? deriveSignals(facts) : []), [facts])
-  const score = useMemo(() => (company ? scoreCompany(company, signals) : null), [company, signals])
+  // derive signals and score via centralized evaluator
+  const evalData = useMemo(() => (company ? evaluateCompany(company) : null), [company])
+  const signals = evalData ? evalData.signals : []
+  const score = evalData ? evalData.score : null
 
   if (!company) {
     return (
@@ -114,9 +104,12 @@ export default function CompanyDetailClient() {
         <section className="bg-white border rounded p-4">
           <h3 className="text-lg font-semibold">Score breakdown</h3>
           <ul className="mt-3 space-y-2 text-sm text-slate-700">
-            {score?.explanation.map((line, i) => (
-              <li key={i}>• {line}</li>
-            ))}
+            {score?.explanation.map((line, i) => {
+              const isDeduction = /deduction/i.test(line)
+              return (
+                <li key={i} className={isDeduction ? 'text-red-600' : ''}>• {line}</li>
+              )
+            })}
           </ul>
         </section>
 
@@ -158,16 +151,24 @@ export default function CompanyDetailClient() {
         <section className="bg-white border rounded p-4">
           <h3 className="text-lg font-semibold">Save</h3>
           <div className="mt-3">
-            <select id="save-to-list" className="w-full rounded border px-2 py-1">
+            <select value={selectedSaveList} onChange={(e) => setSelectedSaveList(e.target.value)} className="w-full rounded border px-2 py-1">
               <option value="">Choose list...</option>
               {Object.keys(lists).map((name) => (
                 <option key={name} value={name}>{name} ({lists[name].length})</option>
               ))}
             </select>
-            <button onClick={() => {
-              const sel = (document.getElementById('save-to-list') as HTMLSelectElement).value
-              if (sel) addToList(sel, company.id)
-            }} className="mt-2 w-full rounded bg-slate-800 text-white px-3 py-2">Save to list</button>
+            <button
+              onClick={() => {
+                const sel = selectedSaveList
+                if (!sel) return
+                const isMember = lists[sel]?.includes(company.id)
+                if (isMember) removeFromList(sel, company.id)
+                else addToList(sel, company.id)
+              }}
+              className="mt-2 w-full rounded bg-slate-800 text-white px-3 py-2"
+            >
+              {selectedSaveList && lists[selectedSaveList]?.includes(company.id) ? 'Remove from list' : 'Save to list'}
+            </button>
           </div>
         </section>
 

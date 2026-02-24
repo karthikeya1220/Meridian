@@ -64,11 +64,38 @@ Create a `.env.local` at the repo root with at least:
 # OpenAI API key (server only). NEVER use NEXT_PUBLIC_* for secret keys
 OPENAI_API_KEY=sk-...
 
-# Optional: extractor base if you self-host an extractor
+# Optional: extractor base if you self-host an extractor (defaults to r.jina.ai)
 # EXTRACTOR_BASE=https://r.jina.ai
+
+# Enrichment API guard (server-only). The server compares incoming
+# `x-enrich-token` header against this value and will reject unmatched requests.
+ENRICH_SECRET=replace-with-a-strong-secret
+
+# Client-side token used by the enrichment panel to call the API. This value
+# is visible to the browser (NEXT_PUBLIC_) and should only be used for a
+# light-weight guard in prototypes. For production, replace with proper
+# authentication (user sessions / API keys).
+NEXT_PUBLIC_ENRICH_SECRET=replace-with-the-same-or-a-public-token
 ```
 
 Important: The enrichment route reads `process.env.OPENAI_API_KEY` server-side only. Do not expose secrets to the browser.
+
+Setup
+
+Create a `.env.local` in the project root by copying the shipped example and filling in values:
+
+```bash
+cp .env.example .env.local
+# then edit .env.local and add your real values
+```
+
+Note: For this prototype the client-side token (`NEXT_PUBLIC_ENRICH_SECRET`) must match the server-side `ENRICH_SECRET` so the browser can call `/api/enrich`. Using `NEXT_PUBLIC_` makes this value visible to users — replace with proper auth in production.
+
+## Security Notes
+
+- `NEXT_PUBLIC_ENRICH_SECRET` is intentionally exposed to the browser in this prototype so the client can authenticate calls to `/api/enrich`. This is acceptable for a demo but not for production. Before a real deployment, replace this with server-side session authentication and remove the `NEXT_PUBLIC_ENRICH_SECRET` pattern entirely.
+- `OPENAI_API_KEY` and `ENRICH_SECRET` are server-only and never exposed to the browser — do not add a `NEXT_PUBLIC_` prefix to these.
+- Never commit `.env.local` to version control. Confirm `.env.local` is listed in `.gitignore` (it is by default in this repo). If you use other environment files for different stages, ensure they are also protected.
 
 Project layout and architecture
 
@@ -81,17 +108,17 @@ Project layout and architecture
 - `components/ToastProvider.tsx`, `components/ErrorBoundary.tsx`, `components/ClientShell.tsx` — Small UX primitives (toasts, error boundary, client shell with mobile sidebar).
 - `app/companies`, `app/lists`, `app/saved` — Main user-facing pages for browsing, saving, and exporting companies/searches.
 
-Runtime & deployment notes
+- Runtime & deployment notes
 
 - The enrichment endpoint must run server-side and will read `OPENAI_API_KEY`. On serverless platforms (Vercel) watch request timeouts — enrichment may exceed very short execution windows. Consider an async queue for production.
-- Some files set `runtime = 'edge'` for experiments — confirm the OpenAI client usage is compatible with edge runtimes or switch to Node runtime.
+- The enrichment route in this scaffold now uses the Node runtime (`export const runtime = 'nodejs'`) to avoid Edge-specific constraints when calling OpenAI and reading `process.env`.
 - Tailwind CSS is pinned to v3.x in this project to avoid PostCSS plugin compatibility issues with older PostCSS versions.
 
 Known limitations
 
 - Proof-of-concept — not production hardened:
-  - No authentication or authorization on `/api/enrich`.
-  - No rate limiting or per-user quotas; potential for high-cost LLM calls.
+  - The enrichment endpoint now checks a simple header guard (`x-enrich-token`) against `ENRICH_SECRET`. This is intentionally minimal — production systems should use proper auth (user sessions, API keys, rate-limiting, quotas).
+  - No rate limiting or per-user quotas beyond that simple header check; potential for high-cost LLM calls.
   - Client-side cache uses `localStorage` (per-browser) — not suitable for team/shared caches.
   - No end-to-end tests for LLM integration or scoring logic.
   - Reliance on public extractor endpoints (r.jina.ai) for page extraction; consider a stable, monitored extractor in production.
@@ -125,3 +152,25 @@ If you'd like, I can also:
 - Add unit tests for the signal & scoring engines.
 
 Choose one action and I will proceed.
+
+Deployment
+
+Quick deploy steps (example using Vercel CLI):
+
+```bash
+# clone the repo
+git clone <repo-url>
+cd <repo-directory>
+
+# install deps
+npm install
+
+# copy example env and edit
+cp .env.example .env.local
+# open .env.local and fill in OPENAI_API_KEY, ENRICH_SECRET, NEXT_PUBLIC_ENRICH_SECRET
+
+# deploy to Vercel (you'll need Vercel CLI and to be logged in)
+vercel --prod
+```
+
+Note: Ensure `ENRICH_SECRET` and `NEXT_PUBLIC_ENRICH_SECRET` are set appropriately in your production environment (use secure environment variables in the Vercel dashboard rather than NEXT_PUBLIC_* for real secrets).

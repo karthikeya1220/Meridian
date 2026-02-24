@@ -3,8 +3,7 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import useAppStore from '../../stores/useAppStore'
 import CompanyCard from '../../components/CompanyCard'
-import { deriveSignals } from '../../lib/signal-engine'
-import { scoreCompany } from '../../lib/scoring'
+import { evaluateCompany } from '../../lib/evaluate'
 import type { Company } from '../../lib/mock-data'
 
 type SortKey = 'name' | 'headcount' | 'score'
@@ -23,7 +22,35 @@ export default function CompaniesPage() {
   const [minHeadcount, setMinHeadcount] = useState<number>(0)
   const [maxHeadcount, setMaxHeadcount] = useState<number>(10000)
   const [minScore, setMinScore] = useState<number>(0)
+  // UI state
+  const [isInitializing, setIsInitializing] = useState<boolean>(true)
+  const [saveListSelect, setSaveListSelect] = useState<string>('')
+  // We avoid Next's useSearchParams here to keep this page a purely client-side component
+  // and to prevent CSR bailout during static prerender. Read from window.location instead.
+  const searchParams = null
   const [q, setQ] = useState<string>('')
+
+  // initialize q from URL query param when the page mounts or when params change
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return
+      const sp = new URLSearchParams(window.location.search)
+      setQ(sp.get('q') || '')
+      setSector(sp.get('sector') || '')
+      setStage(sp.get('stage') || '')
+      setGeography(sp.get('geography') || '')
+      const paramMinScore = sp.get('minScore')
+      setMinScore(paramMinScore ? Number(paramMinScore) : 0)
+    } catch (e) {
+      // ignore
+    }
+  }, [searchParams])
+
+  // small init skeleton flash to avoid jank on mount
+  useEffect(() => {
+    const t = setTimeout(() => setIsInitializing(false), 150)
+    return () => clearTimeout(t)
+  }, [])
 
   // Sorting & pagination
   const [sortKey, setSortKey] = useState<SortKey>('score')
@@ -31,24 +58,11 @@ export default function CompaniesPage() {
   const [page, setPage] = useState<number>(1)
   const [pageSize, setPageSize] = useState<number>(10)
 
-  // compute signals + scores memoized
+  // compute signals + scores memoized via centralized evaluator
   const scored = useMemo(() => {
     return companies.map((c) => {
-      // Build minimal CompanyFacts from Company for the deterministic signal engine
-      const facts = {
-        id: c.id,
-        name: c.name,
-        website: c.website,
-        tags: c.tags,
-        tech_stack: c.tags,
-        repo_links: [] as string[],
-        job_postings_count: 0,
-        careers_page: false,
-        blog_posts: [] as any[]
-      }
-      const signals = deriveSignals(facts)
-      const score = scoreCompany(c as Company, signals)
-      return { company: c, signals, score }
+      const ev = evaluateCompany(c as Company)
+      return { company: c, signals: ev.signals, score: ev.score }
     })
   }, [companies])
 
@@ -87,6 +101,23 @@ export default function CompaniesPage() {
   }, [scored, sector, stage, geography, minHeadcount, maxHeadcount, minScore, q, sortKey, sortDir])
 
   const total = filtered.length
+
+  if (isInitializing) {
+    // simple skeleton while companies initialize
+    return (
+      <div className="space-y-4">
+        <div className="h-8 w-1/3 bg-slate-100 rounded animate-pulse" />
+        <div className="bg-white border rounded p-4">
+          <div className="h-4 bg-slate-100 rounded w-full mb-3 animate-pulse" />
+          <div className="space-y-2">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="h-10 bg-slate-100 rounded animate-pulse" />
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // pagination
   const start = (page - 1) * pageSize
@@ -198,14 +229,14 @@ export default function CompaniesPage() {
         <div className="flex items-center gap-3">
           <button onClick={toggleSelectAll} className="rounded border px-3 py-1 text-sm">{allOnPageSelected ? 'Unselect page' : 'Select page'}</button>
           <div className="flex items-center gap-2">
-            <select id="save-list-select" className="rounded border px-2 py-1">
+            <select value={saveListSelect} onChange={(e) => setSaveListSelect(e.target.value)} className="rounded border px-2 py-1">
               <option value="">Save selected to...</option>
               {Object.keys(lists).map((name) => (
                 <option key={name} value={name}>{name} ({lists[name].length})</option>
               ))}
             </select>
             <button onClick={() => {
-              const sel = (document.getElementById('save-list-select') as HTMLSelectElement).value
+              const sel = saveListSelect
               if (sel) saveSelectedToList(sel)
             }} className="rounded bg-slate-700 text-white px-3 py-1 text-sm">Save</button>
           </div>

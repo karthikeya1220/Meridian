@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import useAppStore from '../../stores/useAppStore'
 import type { Company } from '../../lib/mock-data'
 
@@ -55,6 +56,30 @@ export default function SavedPage() {
     }
   }
 
+  const router = useRouter()
+
+  function runAndNavigate(payloadJson: string) {
+    // preserve existing local preview behavior
+    handleRun(payloadJson)
+
+    try {
+      const parsed = JSON.parse(payloadJson) as FilterShape
+      const params: string[] = []
+      if (parsed.q) params.push(`q=${encodeURIComponent(parsed.q)}`)
+      if (parsed.sector) params.push(`sector=${encodeURIComponent(parsed.sector)}`)
+      if (parsed.stage) params.push(`stage=${encodeURIComponent(parsed.stage)}`)
+      if (parsed.geography) params.push(`geography=${encodeURIComponent(parsed.geography)}`)
+      // allow optional minScore if present in the saved payload
+      const anyMinScore = (parsed as any).minScore
+      if (typeof anyMinScore !== 'undefined' && anyMinScore !== null) params.push(`minScore=${encodeURIComponent(String(anyMinScore))}`)
+
+      const query = params.length ? `?${params.join('&')}` : ''
+      router.push(`/companies${query}`)
+    } catch (e) {
+      // parsing failed — still keep preview, but do not navigate
+    }
+  }
+
   const handlePreview = () => {
     const results = applyFilters(companies, filters)
     setActiveResults(results)
@@ -104,7 +129,7 @@ export default function SavedPage() {
                 <div className="text-xs text-slate-500">{s.query}</div>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => handleRun(s.query)} className="rounded border px-3 py-1">Run</button>
+                <button onClick={() => runAndNavigate(s.query)} className="rounded border px-3 py-1">Run</button>
                 <a href={`data:application/json;charset=utf-8,${encodeURIComponent(s.query)}`} download={`${s.name}.json`} className="text-sm text-slate-600">Export JSON</a>
               </div>
             </div>

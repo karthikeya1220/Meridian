@@ -10,6 +10,7 @@ type Breakdown = {
   attributeScore: number
   signalsCategoryScore: { [k: string]: number }
   signalsBonus: number
+  deductions?: { [k: string]: number }
 }
 
 export type ScoreResult = {
@@ -49,6 +50,14 @@ const SIGNAL_TO_CATEGORY: Record<string, string> = {
   developer_focus: 'tech',
   hiring_detected: 'team',
   recent_blog_activity: 'traction'
+}
+
+// Penalty weights map (absolute fraction values to subtract from score)
+// These represent percentage points (e.g., 0.05 == 5 points on 0..1 scale)
+const PENALTY_WEIGHTS: Record<string, number> = {
+  blog_inactive: 0.05, // 5%
+  over_headcount: 0.10, // 10%
+  careers_missing: 0.03 // 3%
 }
 
 export function scoreCompany(company: Company, signals: Signal[]): ScoreResult {
@@ -119,9 +128,27 @@ export function scoreCompany(company: Company, signals: Signal[]): ScoreResult {
   const signalsBonus = clamp01(rawSignalsBonus)
   if (signals.length > 0) explanation.push(`signals bonus ${signalsBonus.toFixed(3)}`)
 
+  // Penalties / negative weights applied per-signal
+  const deductions: Record<string, number> = {}
+  let totalDeductions = 0
+  for (const s of signals) {
+    const w = PENALTY_WEIGHTS[s.id]
+    if (typeof w === 'number' && w > 0) {
+      const ded = clamp01(w * (s.strength ?? 1))
+      deductions[s.id] = ded
+      totalDeductions += ded
+      explanation.push(`deduction (${s.label}) -${Math.round(ded * 100)} pts`)
+    }
+  }
+
   // Combine attribute score and signals weighted score with signals bonus
   // weights chosen to prioritize base attributes but incorporate signals
-  const totalScore = clamp01(attributeScore * 0.6 + signalsWeightedSum * 0.35 + signalsBonus * 0.05)
+  let totalScore = clamp01(attributeScore * 0.6 + signalsWeightedSum * 0.35 + signalsBonus * 0.05)
+
+  // apply deductions (subtract then clamp)
+  if (totalDeductions > 0) {
+    totalScore = clamp01(totalScore - totalDeductions)
+  }
 
   const breakdown: Breakdown = {
     sectorScore,
@@ -130,7 +157,8 @@ export function scoreCompany(company: Company, signals: Signal[]): ScoreResult {
     sizeScore,
     attributeScore,
     signalsCategoryScore,
-    signalsBonus
+    signalsBonus,
+    deductions: Object.keys(deductions).length ? deductions : undefined
   }
 
   return {

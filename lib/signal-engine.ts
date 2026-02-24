@@ -1,12 +1,16 @@
 // Deterministic rule-based signal engine
 // Consumes factual LLM output (CompanyFacts) and derives Signals used by scoring
 
+import THESIS from './thesis'
+
 export interface CompanyFacts {
   id: string
   name?: string
   website?: string
   // tags or categories extracted by LLM
   tags?: string[]
+  // optional headcount injected by evaluator
+  headcount?: number
   // number of current public job postings (if available)
   job_postings_count?: number
   // whether company has a careers page detected
@@ -144,6 +148,51 @@ export function deriveSignals(facts: CompanyFacts): Signal[] {
     reason: blogReasons.join('; '),
     raw: { recentCount, windowDays: recentWindowDays }
   })
+
+  // Penalty signals
+  // Blog inactive (> 2 years)
+  // determine most recent post date (days since)
+  const latestPost = (posts || []).reduce((acc: { title?: string; date?: string; url?: string } | undefined, p) => {
+    if (!p || !p.date) return acc
+    if (!acc) return p
+    return daysSince(p.date) < daysSince(acc.date) ? p : acc
+  }, undefined as { title?: string; date?: string; url?: string } | undefined)
+  const latestDays = latestPost?.date ? daysSince(latestPost.date) : Infinity
+  if (latestDays === Infinity || latestDays > 365 * 2) {
+    signals.push({
+      id: 'blog_inactive',
+      label: 'Blog inactivity',
+      strength: 1,
+      reason: latestDays === Infinity ? 'no blog posts found' : `latest post ${latestDays} days ago`,
+      raw: { latestDays }
+    })
+  }
+
+  // Careers page missing
+  if (!facts.careers_page) {
+    signals.push({
+      id: 'careers_missing',
+      label: 'Careers page missing',
+      strength: 1,
+      reason: 'no careers page detected',
+      raw: {}
+    })
+  }
+
+  // Headcount over thesis max (if headcount present)
+  const hc = facts.headcount ?? null
+  if (hc != null) {
+    const max = THESIS.maxHeadcount || Infinity
+    if (hc > max) {
+      signals.push({
+        id: 'over_headcount',
+        label: 'Headcount over thesis max',
+        strength: 1,
+        reason: `headcount ${hc} > thesis max ${max}`,
+        raw: { headcount: hc, max }
+      })
+    }
+  }
 
   return signals
 }

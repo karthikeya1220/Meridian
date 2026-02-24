@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import useAppStore from '../../stores/useAppStore'
 import type { Company } from '../../lib/mock-data'
+import { useToast } from '../../components/ToastProvider'
 
 function downloadCSV(rows: Record<string, any>[], filename = 'export.csv') {
   if (!rows || rows.length === 0) return
@@ -22,9 +23,12 @@ export default function ListsPage() {
   const companies = useAppStore((s) => s.companies)
   const createList = useAppStore((s) => s.createList)
   const addToList = useAppStore((s) => s.addToList)
+  const removeFromList = useAppStore((s) => s.removeFromList)
+  const deleteList = useAppStore((s) => s.deleteList)
 
   const [newListName, setNewListName] = useState('')
   const [selectedList, setSelectedList] = useState<string>('')
+  const toast = useToast()
 
   const handleCreate = () => {
     if (!newListName) return
@@ -69,15 +73,33 @@ export default function ListsPage() {
 
       <section className="bg-white border rounded p-4">
         <h3 className="text-lg font-medium">Your lists</h3>
-        <div className="mt-3 flex items-center gap-3">
-          <select value={selectedList} onChange={(e) => setSelectedList(e.target.value)} className="rounded border px-3 py-2">
-            <option value="">Select a list</option>
-            {Object.keys(lists).map((name) => (
-              <option key={name} value={name}>{name} ({lists[name].length})</option>
-            ))}
-          </select>
+          <div className="mt-3 flex items-center gap-3">
+          {Object.keys(lists).length === 0 ? (
+            <div className="text-sm text-slate-600">No lists yet. Create one above to start organizing companies.</div>
+          ) : (
+            <>
+              <select value={selectedList} onChange={(e) => setSelectedList(e.target.value)} className="rounded border px-3 py-2">
+                <option value="">Select a list</option>
+                {Object.keys(lists).map((name) => (
+                  <option key={name} value={name}>{name} ({lists[name].length})</option>
+                ))}
+              </select>
 
-          <button onClick={() => downloadCSV(rows, `${selectedList || 'list'}.csv`)} className="rounded border px-3 py-2">Export CSV</button>
+              <button onClick={() => downloadCSV(rows, `${selectedList || 'list'}.csv`)} className="rounded border px-3 py-2">Export CSV</button>
+              <button
+                onClick={() => {
+                  if (!selectedList) return
+                  if (!window.confirm(`Delete list "${selectedList}"? This cannot be undone.`)) return
+                  deleteList(selectedList)
+                  setSelectedList('')
+                  try { toast({ title: 'List deleted', message: `Deleted list ${selectedList}`, type: 'success' }) } catch (e) {}
+                }}
+                className="rounded border px-3 py-2 text-red-600"
+              >
+                Delete list
+              </button>
+            </>
+          )}
         </div>
 
         <div className="mt-4">
@@ -92,7 +114,13 @@ export default function ListsPage() {
                       <div className="font-medium">{c?.name ?? id}</div>
                       <div className="text-xs text-slate-500">{c?.oneLiner}</div>
                     </div>
-                    <div className="text-sm text-slate-600">{c?.sector}</div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-sm text-slate-600">{c?.sector}</div>
+                      <button onClick={() => {
+                        removeFromList(selectedList, id)
+                        try { toast({ title: 'Removed', message: `${c?.name ?? id} removed from ${selectedList}`, type: 'info' }) } catch (e) {}
+                      }} className="rounded border px-3 py-1 text-sm text-red-600">Remove</button>
+                    </div>
                   </div>
                 )
               })}

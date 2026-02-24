@@ -1,9 +1,32 @@
 "use client"
 
-import React from 'react'
+import React, { useEffect } from 'react'
 import SearchInput from './SearchInput'
+import { useRouter } from 'next/navigation'
 
 export default function Header({ onMenuToggle }: { onMenuToggle?: () => void }) {
+  const router = useRouter()
+
+  function handleSearch(q: string) {
+    const trimmed = q.trim()
+    const target = trimmed ? `/companies?q=${encodeURIComponent(trimmed)}` : '/companies'
+    router.push(target)
+  }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const isMac = navigator.platform.toLowerCase().includes('mac')
+      const mod = isMac ? e.metaKey : e.ctrlKey
+      if (mod && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        const el = document.getElementById('global-search') as HTMLInputElement | null
+        if (el) el.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
     <header className="border-b bg-white">
       <div className="container flex items-center justify-between h-16">
@@ -19,7 +42,7 @@ export default function Header({ onMenuToggle }: { onMenuToggle?: () => void }) 
         </div>
 
         <div className="flex-1 px-4">
-          <SearchInput />
+          <SearchInput onSearch={handleSearch} />
         </div>
 
         <div className="ml-4"> 

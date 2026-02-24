@@ -1,5 +1,6 @@
 import create from 'zustand'
 import { MOCK_COMPANIES, type Company } from '../lib/mock-data'
+import { STORAGE_KEYS } from '../lib/storage'
 
 type ListsRecord = Record<string, string[]>
 
@@ -20,12 +21,14 @@ type AppState = {
   toggleCompanySelection: (id: string) => void
   addToList: (listName: string, companyId: string) => void
   createList: (listName: string) => void
+  removeFromList: (listName: string, companyId: string) => void
+  deleteList: (listName: string) => void
   saveSearch: (name: string, query: string) => void
   rehydrateFromStorage: () => void
 }
 
-const LISTS_KEY = 'xartup.lists.v1'
-const SAVED_SEARCHES_KEY = 'xartup.savedSearches.v1'
+const LISTS_KEY = STORAGE_KEYS.lists
+const SAVED_SEARCHES_KEY = STORAGE_KEYS.savedSearches
 
 function readListsFromStorage(): ListsRecord {
   try {
@@ -94,6 +97,34 @@ export const useAppStore = create<AppState>((set, get) => {
           lists[listName] = [...lists[listName], companyId]
         }
         writeListsToStorage(lists)
+        return { lists }
+      })
+    },
+
+    removeFromList(listName: string, companyId: string) {
+      set((state) => {
+        const lists = { ...state.lists }
+        const arr = lists[listName] || []
+        const nextArr = arr.filter((id) => id !== companyId)
+        if (nextArr.length === arr.length) return { lists } // nothing changed
+        if (nextArr.length > 0) {
+          lists[listName] = nextArr
+        } else {
+          // if list becomes empty, keep as empty array (do not auto-delete)
+          lists[listName] = []
+        }
+        writeListsToStorage(lists)
+        return { lists }
+      })
+    },
+
+    deleteList(listName: string) {
+      set((state) => {
+        const lists = { ...state.lists }
+        if (lists[listName]) {
+          delete lists[listName]
+          writeListsToStorage(lists)
+        }
         return { lists }
       })
     },

@@ -1,17 +1,17 @@
 "use client"
 
 import React, { useEffect, useState } from 'react'
-import { deriveSignals } from '../lib/signal-engine'
-import { scoreCompany } from '../lib/scoring'
+import { evaluateFromFacts } from '../lib/evaluate'
 import type { Company } from '../lib/mock-data'
 import { useToast } from './ToastProvider'
+import { STORAGE_KEYS } from '../lib/storage'
 
 type EnrichCache = {
-  extract: any
+  facts: any
   signals: any
   score: any
-  sources: { url: string; ok: boolean }[]
-  timestamp: string
+  sources: { url: string; status: string }[]
+  enrichedAt: string
 }
 
 const TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
@@ -37,7 +37,9 @@ export default function EnrichmentPanel({ company }: { company: Company }) {
   const [data, setData] = useState<EnrichCache | null>(null)
   const toast = useToast()
 
-  const cacheKey = `xartup.enrich.${company.id}`
+  const cacheKey = STORAGE_KEYS.enrichment(company.id)
+
+  const ENRICH_PUBLIC = (process.env.NEXT_PUBLIC_ENRICH_SECRET || '')
 
   useEffect(() => {
     // hydrate from cache if present and fresh
@@ -46,7 +48,7 @@ export default function EnrichmentPanel({ company }: { company: Company }) {
       if (!raw) return
       const parsed = safeJsonParse(raw) as EnrichCache | null
       if (!parsed) return
-      const age = Date.now() - new Date(parsed.timestamp).getTime()
+      const age = Date.now() - new Date(parsed.enrichedAt).getTime()
       if (age < TTL_MS) {
         setData(parsed)
         setState('success')
@@ -66,7 +68,7 @@ export default function EnrichmentPanel({ company }: { company: Company }) {
         if (raw) {
           const parsed = safeJsonParse(raw) as EnrichCache | null
           if (parsed) {
-            const age = Date.now() - new Date(parsed.timestamp).getTime()
+            const age = Date.now() - new Date(parsed.enrichedAt).getTime()
             if (age < TTL_MS) {
               setData(parsed)
               setState('success')
@@ -80,7 +82,7 @@ export default function EnrichmentPanel({ company }: { company: Company }) {
         '/api/enrich',
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-enrich-token': ENRICH_PUBLIC },
           body: JSON.stringify({ companyId: company.id, website: company.website })
         },
         12000
@@ -95,19 +97,18 @@ export default function EnrichmentPanel({ company }: { company: Company }) {
 
       if (!res.ok) throw new Error(json?.error || 'Enrichment failed')
 
-      const extract = json.extract
+      const facts = json.facts
       const sources = json.sources || []
 
-      // derive signals and score locally (deterministic)
-      const signals = deriveSignals(extract)
-      const score = scoreCompany(company, signals)
+      // derive signals and score via centralized evaluator (LLM -> Facts -> Signals -> Score)
+      const { signals, score } = evaluateFromFacts(company, facts)
 
       const payload: EnrichCache = {
-        extract,
+        facts,
         signals,
         score,
         sources,
-        timestamp: new Date().toISOString()
+        enrichedAt: json.enrichedAt || new Date().toISOString()
       }
 
       try {
@@ -131,7 +132,7 @@ export default function EnrichmentPanel({ company }: { company: Company }) {
     }
   }
 
-  const isStale = data ? Date.now() - new Date(data.timestamp).getTime() > TTL_MS : true
+  const isStale = data ? Date.now() - new Date(data.enrichedAt).getTime() > TTL_MS : true
 
   return (
     <div className="bg-white border rounded p-4">
@@ -162,7 +163,7 @@ export default function EnrichmentPanel({ company }: { company: Company }) {
       {state === 'success' && data && (
         <div className="mt-3 space-y-3 text-sm text-slate-700">
           <div className="flex items-center justify-between">
-            <div>Last indexed: <span className="font-medium">{new Date(data.timestamp).toLocaleString()}</span></div>
+            <div>Last indexed: <span className="font-medium">{new Date(data.enrichedAt).toLocaleString()}</span></div>
             <div>
               <button onClick={() => runEnrich(true)} className="rounded border px-2 py-1 text-xs">Re-enrich</button>
             </div>
@@ -170,21 +171,21 @@ export default function EnrichmentPanel({ company }: { company: Company }) {
 
           <div>
             <h4 className="font-medium">Summary</h4>
-            <div className="text-xs text-slate-600">{data.extract?.name || company.name} — extracted facts available.</div>
+            <div className="text-xs text-slate-600">{data.facts?.name || company.name} — extracted facts available.</div>
           </div>
 
           <div>
             <h4 className="font-medium">Bullets</h4>
             <ul className="list-disc ml-5 text-xs">
-              {data.extract?.tags && <li>Tags: {(data.extract.tags || []).join(', ')}</li>}
-              {typeof data.extract?.job_postings_count !== 'undefined' && <li>Job postings: {data.extract.job_postings_count}</li>}
-              {data.extract?.careers_page && <li>Careers page detected</li>}
+              {data.facts?.tags && <li>Tags: {(data.facts.tags || []).join(', ')}</li>}
+              {typeof data.facts?.job_postings_count !== 'undefined' && <li>Job postings: {data.facts.job_postings_count}</li>}
+              {data.facts?.careers_page && <li>Careers page detected</li>}
             </ul>
           </div>
 
           <div>
             <h4 className="font-medium">Keywords</h4>
-            <div className="text-xs">{[...(data.extract?.tags || []), ...(data.extract?.tech_stack || [])].slice(0, 10).join(', ')}</div>
+            <div className="text-xs">{[...(data.facts?.tags || []), ...(data.facts?.tech_stack || [])].slice(0, 10).join(', ')}</div>
           </div>
 
           <div>
@@ -206,7 +207,7 @@ export default function EnrichmentPanel({ company }: { company: Company }) {
             <h4 className="font-medium">Scraped sources</h4>
             <ul className="text-xs list-disc ml-5">
               {data.sources.map((s) => (
-                <li key={s.url}>{s.url} {s.ok ? '' : '(failed)'}</li>
+                <li key={s.url}>{s.url} — <span className="font-mono text-xs">{s.status}</span></li>
               ))}
             </ul>
           </div>
